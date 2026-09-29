@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#10102a">
+    <meta name="description" content="Simon Says — watch the glowing sequence, then repeat it. How long can you last? Installable PWA, works offline.">
+    <title>Simon Says</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #10102a;
+            --panel: #1a1b3d;
+            --ink: #f4f3ff;
+            --muted: #8f8fc0;
+            --radius: 16px;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--ink);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 14px 12px calc(18px + env(safe-area-inset-bottom));
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow: hidden;
+        }
+        .wrap { width: 100%; max-width: 430px; display: flex; flex-direction: column; align-items: center; }
+
+        .top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; align-self: flex-start; width: 100%; }
+        .top img { width: 42px; height: 42px; border-radius: 12px; box-shadow: 0 4px 14px rgba(255,255,255,.2); }
+        .top h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.4px; flex: 1; }
+        .icon-btn {
+            border: none; background: var(--panel); color: var(--ink);
+            width: 44px; height: 44px; border-radius: 12px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .icon-btn:active { transform: scale(.94); }
+        .icon-btn svg { width: 22px; height: 22px; }
+
+        .hud { display: flex; gap: 10px; width: 100%; margin-bottom: 14px; }
+        .hud .card { flex: 1; background: var(--panel); border-radius: 12px; padding: 8px 12px; text-align: center; }
+        .hud .card .v { font-size: 26px; font-weight: 800; color: #fff; }
+        .hud .card .l { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+
+        .stage { position: relative; width: 100%; max-width: 380px; }
+        .wheel {
+            position: relative; width: 100%; aspect-ratio: 1;
+            display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 12px;
+            background: #0a0a1c; border-radius: 50%; padding: 22px;
+            box-shadow: 0 12px 40px rgba(0,0,0,.5), inset 0 2px 8px rgba(255,255,255,.05);
+        }
+        .pad {
+            border: none; cursor: pointer; padding: 0;
+            transition: filter .12s, box-shadow .12s, transform .06s;
+            opacity: .55;
+        }
+        .pad:active { transform: scale(.97); }
+        .pad[data-pad="0"] { background: #22c55e; border-radius: 100% 12px 12px 12px; }
+        .pad[data-pad="1"] { background: #ef4444; border-radius: 12px 100% 12px 12px; }
+        .pad[data-pad="2"] { background: #eab308; border-radius: 12px 12px 12px 100%; }
+        .pad[data-pad="3"] { background: #3b82f6; border-radius: 12px 12px 100% 12px; }
+        .pad.lit { opacity: 1; filter: brightness(1.35); }
+        .pad[data-pad="0"].lit { box-shadow: 0 0 34px rgba(34,197,94,.9); }
+        .pad[data-pad="1"].lit { box-shadow: 0 0 34px rgba(239,68,68,.9); }
+        .pad[data-pad="2"].lit { box-shadow: 0 0 34px rgba(234,179,8,.9); }
+        .pad[data-pad="3"].lit { box-shadow: 0 0 34px rgba(59,130,246,.9); }
+
+        .hub {
+            position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+            width: 38%; aspect-ratio: 1; border-radius: 50%;
+            background: #10102a; border: 6px solid #0a0a1c;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+            box-shadow: 0 4px 18px rgba(0,0,0,.6); z-index: 5; text-align: center; padding: 6px;
+        }
+        .hub .round { font-size: 40px; font-weight: 800; line-height: 1; }
+        .hub .status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+        .hub button {
+            border: none; border-radius: 20px; cursor: pointer; margin-top: 4px;
+            background: linear-gradient(135deg, #a78bfa, #7c3aed);
+            color: #fff; font-size: 14px; font-weight: 800; padding: 10px 20px;
+        }
+        .hub button:active { transform: scale(.95); }
+
+        .opts { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; font-weight: 600; color: var(--muted); }
+        .switch { position: relative; width: 52px; height: 30px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .track {
+            position: absolute; inset: 0; border-radius: 16px; background: var(--panel);
+            transition: background .2s; cursor: pointer; border: 1px solid rgba(255,255,255,.12);
+        }
+        .track:before {
+            content: ''; position: absolute; width: 22px; height: 22px; border-radius: 50%;
+            background: #fff; top: 3px; left: 4px; transition: transform .2s;
+        }
+        .switch input:checked + .track { background: #ef4444; }
+        .switch input:checked + .track:before { transform: translateX(21px); }
+        .opts .hint { font-size: 11px; opacity: .75; }
+
+        .overlay {
+            position: absolute; inset: 0; z-index: 20;
+            background: rgba(16,16,42,.88); backdrop-filter: blur(3px);
+            border-radius: 24px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+            opacity: 0; pointer-events: none; transition: opacity .25s ease;
+            padding: 24px; text-align: center;
+        }
+        .overlay.show { opacity: 1; pointer-events: auto; }
+        .overlay .big { font-size: 56px; }
+        .overlay h2 { font-size: 28px; font-weight: 800; }
+        .score-row { display: flex; gap: 26px; margin: 4px 0 8px; }
+        .score-row .cell .v { font-size: 34px; font-weight: 800; color: #a78bfa; }
+        .score-row .cell .l { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 2px; }
+        .overlay .newbest {
+            background: rgba(167,139,250,.15); color: #a78bfa;
+            font-size: 13px; font-weight: 800; padding: 6px 14px; border-radius: 20px; letter-spacing: .5px;
+        }
+        .overlay button {
+            border: none; border-radius: 14px; cursor: pointer; margin-top: 6px;
+            background: linear-gradient(135deg, #a78bfa, #7c3aed);
+            color: #fff; font-size: 17px; font-weight: 800; padding: 15px 34px; min-height: 56px;
+            box-shadow: 0 6px 18px rgba(124,58,237,.4);
+        }
+        .overlay button:active { transform: scale(.96); }
+
+        .tip { text-align: center; margin-top: 12px; font-size: 12px; color: var(--muted); opacity: .8; line-height: 1.6; }
+        footer { text-align: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="top">
+            <img src="icon-192.png" alt="Simon Says icon">
+            <h1>Simon Says</h1>
+            <button class="icon-btn" id="soundBtn" aria-label="Toggle sound">
+                <svg id="soundOnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9.4 9.4 0 0 1 0 13"/></svg>
+                <svg id="soundOffIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M11 5L6 9H2v6h4l5 4V5z" fill="currentColor" stroke="none"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+            </button>
+        </div>
+
+        <div class="hud">
+            <div class="card"><div class="v" id="roundV">0</div><div class="l">Round</div></div>
+            <div class="card"><div class="v" id="bestV">0</div><div class="l">Best</div></div>
+        </div>
+
+        <div class="stage">
+            <div class="wheel" id="wheel">
+                <button class="pad" data-pad="0" aria-label="Green pad"></button>
+                <button class="pad" data-pad="1" aria-label="Red pad"></button>
+                <button class="pad" data-pad="2" aria-label="Yellow pad"></button>
+                <button class="pad" data-pad="3" aria-label="Blue pad"></button>
+                <div class="hub">
+                    <div class="round" id="hubRound">–</div>
+                    <div class="status" id="hubStatus">Simon</div>
+                    <button id="hubStart">Start</button>
+                </div>
+            </div>
+            <div class="overlay" id="overlay">
+                <div class="big">🧠</div>
+                <h2>Game Over</h2>
+                <div class="score-row">
+                    <div class="cell"><div class="v" id="ovScore">0</div><div class="l">Rounds</div></div>
+                    <div class="cell"><div class="v" id="ovBest">0</div><div class="l">Best</div></div>
+                </div>
+                <div class="newbest" id="ovNewBest" style="display:none">NEW BEST!</div>
+                <button id="ovBtn">Play again</button>
+            </div>
+        </div>
+
+        <label class="opts">
+            <span class="switch"><input type="checkbox" id="strictBox"><span class="track"></span></span>
+            Strict mode <span class="hint">(one mistake ends the game)</span>
+        </label>
+
+        <div class="tip">Watch the lights, then repeat the sequence.<br>It gets faster every round.</div>
+        <footer>Made with ❤️ by Sauravhhh</footer>
+    </div>
+
+    <script src="game-logic.js"></script>
+    <script>
+        (function () {
+            'use strict';
+            var SM = window.SimonLogic;
+
+            var pads = Array.prototype.slice.call(document.querySelectorAll('.pad'));
+            var hubRound = document.getElementById('hubRound');
+            var hubStatus = document.getElementById('hubStatus');
+            var hubStart = document.getElementById('hubStart');
+            var roundV = document.getElementById('roundV');
+            var bestV = document.getElementById('bestV');
+            var overlay = document.getElementById('overlay');
+            var strictBox = document.getElementById('strictBox');
+
+            var state = SM.createGame();
+            var best = parseInt(localStorage.getItem('simon_best') || '0', 10) || 0;
+            bestV.textContent = best;
+            var soundOn = localStorage.getItem('simon_sound') !== 'off';
+            var playToken = 0; // cancels stale playback loops
+
+            // ---------- sound (Web Audio, zero files) ----------
+            var actx = null;
+            function ac() {
+                if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+                if (actx && actx.state === 'suspended') actx.resume();
+                return actx;
+            }
+            function tone(freq, dur, type, vol, delay) {
+                if (!soundOn) return;
+                var c = ac(); if (!c) return;
+                var t0 = c.currentTime + (delay || 0);
+                var o = c.createOscillator(), g = c.createGain();
+                o.type = type || 'triangle';
+                o.frequency.setValueAtTime(freq, t0);
+                g.gain.setValueAtTime(0.0001, t0);
+                g.gain.exponentialRampToValueAtTime(vol || 0.12, t0 + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+                o.connect(g); g.connect(c.destination);
+                o.start(t0); o.stop(t0 + dur + 0.05);
+            }
+            var sfx = {
+                pad: function (i, dur) { tone(SM.FREQS[i], dur || 0.35, 'triangle', 0.14); },
+                error: function () { tone(140, 0.5, 'sawtooth', 0.12); tone(105, 0.5, 'sawtooth', 0.1, 0.05); },
+                success: function () { [523, 659, 784].forEach(function (f, i) { tone(f, 0.16, 'sine', 0.1, i * 0.09); }); },
+                fanfare: function () { [392, 523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.25, 'triangle', 0.11, i * 0.14); }); }
+            };
+
+            function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+            function lightPad(i, durMs) {
+                pads[i].classList.add('lit');
+                sfx.pad(i, Math.min(0.5, durMs / 1000 + 0.1));
+                setTimeout(function () { pads[i].classList.remove('lit'); }, durMs);
+            }
+
+            function setHub(round, status, showStart) {
+                hubRound.textContent = round;
+                hubStatus.textContent = status;
+                hubStart.style.display = showStart ? 'block' : 'none';
+            }
+
+            async function playSequence() {
+                var my = ++playToken;
+                var seq = state.sequence.slice();
+                var step = SM.stepInterval(state.round);
+                setHub(Math.max(1, state.round + 1), 'Watch…', false);
+                roundV.textContent = Math.max(1, state.round + 1);
+                await delay(650);
+                for (var k = 0; k < seq.length; k++) {
+                    if (my !== playToken) return; // superseded
+                    var on = Math.min(step * 0.62, 420);
+                    lightPad(seq[k], on);
+                    await delay(step);
+                }
+                if (my !== playToken) return;
+                SM.beginInput(state);
+                setHub(state.round + 1, 'Your turn', false);
+            }
+
+            function pressPad(i) {
+                if (state.phase !== 'input') return;
+                lightPad(i, 200);
+                if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
+                var res = SM.press(state, i);
+                if (res.ok && res.roundComplete) {
+                    sfx.success();
+                    if (state.round > best) {
+                        best = state.round;
+                        localStorage.setItem('simon_best', String(best));
+                        bestV.textContent = best;
+                    }
+                    (async function () {
+                        var my = ++playToken;
+                        setHub(state.round, 'Nice!', false);
+                        await delay(750);
+                        if (my !== playToken) return;
+                        playSequence();
+                    })();
+                } else if (!res.ok && res.replay) {
+                    sfx.error();
+                    if (navigator.vibrate) { try { navigator.vibrate([70, 40, 70]); } catch (e) {} }
+                    (async function () {
+                        var my = ++playToken;
+                        setHub(state.round + 1, 'Oops! Watch again', false);
+                        await delay(950);
+                        if (my !== playToken) return;
+                        playSequence();
+                    })();
+                } else if (res.gameOver) {
+                    gameOver();
+                }
+            }
+
+            function gameOver() {
+                playToken++;
+                sfx.error();
+                setTimeout(function () { sfx.fanfare(); }, 350);
+                if (navigator.vibrate) { try { navigator.vibrate([80, 50, 80, 50, 140]); } catch (e) {} }
+                document.getElementById('ovScore').textContent = state.round;
+                document.getElementById('ovBest').textContent = best;
+                document.getElementById('ovNewBest').style.display =
+                    (state.round > 0 && state.round > gameStartBest) ? 'block' : 'none';
+                overlay.classList.add('show');
+                setHub('–', 'Simon', true);
+            }
+
+            var gameStartBest = 0;
+            function startGame() {
+                ac();
+                playToken++;
+                overlay.classList.remove('show');
+                gameStartBest = best;
+                SM.start(state, strictBox.checked);
+                setHub(1, 'Get ready…', false);
+                roundV.textContent = '1';
+                playSequence();
+            }
+
+            pads.forEach(function (p) {
+                var i = parseInt(p.getAttribute('data-pad'), 10);
+                p.addEventListener('pointerdown', function (e) {
+                    e.preventDefault();
+                    pressPad(i);
+                });
+            });
+            hubStart.addEventListener('click', startGame);
+            document.getElementById('ovBtn').addEventListener('click', startGame);
+            strictBox.addEventListener('change', function () {
+                state.strict = strictBox.checked;
+            });
+
+            // sound toggle
+            function renderSoundIcon() {
+                document.getElementById('soundOnIcon').style.display = soundOn ? 'block' : 'none';
+                document.getElementById('soundOffIcon').style.display = soundOn ? 'none' : 'block';
+            }
+            document.getElementById('soundBtn').addEventListener('click', function (e) {
+                e.stopPropagation();
+                soundOn = !soundOn;
+                localStorage.setItem('simon_sound', soundOn ? 'on' : 'off');
+                renderSoundIcon();
+            });
+            renderSoundIcon();
+
+            setHub('–', 'Simon', true);
+
+            // PWA service worker
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function () {
+                    navigator.serviceWorker.register('sw.js').catch(function (err) {
+                        console.warn('SW registration failed:', err);
+                    });
+                });
+            }
+        })();
+    </script>
+</body>
+</html>
